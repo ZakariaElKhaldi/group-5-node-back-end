@@ -40,6 +40,27 @@ const Machine = sequelize.define('Machine', {
         allowNull: true,
         field: 'client_id',
     },
+    // Image storage (Cloudinary URLs)
+    images: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
+        comment: 'Array of image URLs from Cloudinary',
+    },
+    primaryImage: {
+        type: DataTypes.STRING(500),
+        allowNull: true,
+        field: 'primary_image',
+        comment: 'Main display image URL',
+    },
+    // QR Code
+    qrCodeData: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+        unique: true,
+        field: 'qr_code_data',
+        comment: 'Unique identifier for QR code lookup',
+    },
 }, {
     tableName: 'machine',
     timestamps: false,

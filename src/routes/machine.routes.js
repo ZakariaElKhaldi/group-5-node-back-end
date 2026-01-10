@@ -186,4 +186,226 @@ router.get('/:id/interventions', authenticate, async (req, res) => {
     }
 });
 
+// ==========================================
+// Image Upload Endpoints
+// ==========================================
+
+const { uploadSingle, uploadMultiple, handleUploadError } = require('../middleware/upload.middleware');
+const { uploadImage, deleteImage, getPublicIdFromUrl } = require('../config/cloudinary');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
+
+/**
+ * POST /api/machines/:id/images
+ * Upload images to machine
+ */
+router.post('/:id/images', authenticate, requireReceptionist, uploadMultiple, handleUploadError, async (req, res) => {
+    try {
+        const machine = await Machine.findByPk(req.params.id);
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: 'No images provided' });
+        }
+
+        const uploadedUrls = [];
+
+        for (const file of req.files) {
+            try {
+                const result = await uploadImage(file.buffer, {
+                    folder: `gmao/machines/${machine.id}`,
+                    public_id: `${machine.reference}_${Date.now()}`,
+                });
+                uploadedUrls.push(result.secure_url);
+            } catch (uploadError) {
+                console.error('Cloudinary upload error:', uploadError);
+                // Continue with other files
+            }
+        }
+
+        if (uploadedUrls.length === 0) {
+            return res.status(500).json({ error: 'Failed to upload images' });
+        }
+
+        // Add to existing images
+        const existingImages = machine.images || [];
+        const newImages = [...existingImages, ...uploadedUrls];
+
+        // Set primary image if not set
+        const updates = { images: newImages };
+        if (!machine.primaryImage && uploadedUrls.length > 0) {
+            updates.primaryImage = uploadedUrls[0];
+        }
+
+        await machine.update(updates);
+
+        res.json({
+            success: true,
+            uploaded: uploadedUrls,
+            images: newImages,
+            primaryImage: machine.primaryImage || uploadedUrls[0],
+        });
+    } catch (error) {
+        console.error('Upload machine images error:', error);
+        res.status(500).json({ error: 'Failed to upload images' });
+    }
+});
+
+/**
+ * DELETE /api/machines/:id/images
+ * Remove an image from machine
+ */
+router.delete('/:id/images', authenticate, requireReceptionist, async (req, res) => {
+    try {
+        const { imageUrl } = req.body;
+
+        const machine = await Machine.findByPk(req.params.id);
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        if (!imageUrl) {
+            return res.status(400).json({ error: 'Image URL is required' });
+        }
+
+        // Remove from Cloudinary
+        const publicId = getPublicIdFromUrl(imageUrl);
+        if (publicId) {
+            try {
+                await deleteImage(publicId);
+            } catch (cloudinaryError) {
+                console.error('Cloudinary delete error:', cloudinaryError);
+                // Continue even if Cloudinary delete fails
+            }
+        }
+
+        // Remove from machine images array
+        const images = (machine.images || []).filter(img => img !== imageUrl);
+        const updates = { images };
+
+        // Update primary image if deleted
+        if (machine.primaryImage === imageUrl) {
+            updates.primaryImage = images[0] || null;
+        }
+
+        await machine.update(updates);
+
+        res.json({
+            success: true,
+            images,
+            primaryImage: updates.primaryImage,
+        });
+    } catch (error) {
+        console.error('Delete machine image error:', error);
+        res.status(500).json({ error: 'Failed to delete image' });
+    }
+});
+
+/**
+ * PUT /api/machines/:id/primary-image
+ * Set primary image for machine
+ */
+router.put('/:id/primary-image', authenticate, requireReceptionist, async (req, res) => {
+    try {
+        const { imageUrl } = req.body;
+
+        const machine = await Machine.findByPk(req.params.id);
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        const images = machine.images || [];
+        if (!images.includes(imageUrl)) {
+            return res.status(400).json({ error: 'Image not found in machine images' });
+        }
+
+        await machine.update({ primaryImage: imageUrl });
+
+        res.json({ success: true, primaryImage: imageUrl });
+    } catch (error) {
+        console.error('Set primary image error:', error);
+        res.status(500).json({ error: 'Failed to set primary image' });
+    }
+});
+
+// ==========================================
+// QR Code Endpoints
+// ==========================================
+
+/**
+ * GET /api/machines/:id/qrcode
+ * Generate QR code for machine
+ */
+router.get('/:id/qrcode', async (req, res) => {
+    try {
+        const machine = await Machine.findByPk(req.params.id);
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        // Generate QR code data if not exists
+        if (!machine.qrCodeData) {
+            const qrData = `GMAO-${machine.id}-${crypto.randomUUID().substring(0, 8)}`;
+            await machine.update({ qrCodeData: qrData });
+            machine.qrCodeData = qrData;
+        }
+
+        // Build QR code URL
+        const qrUrl = `${process.env.QR_BASE_URL || 'http://localhost:8001/api/qr/'}${machine.qrCodeData}`;
+
+        // Generate QR code as data URL
+        const format = req.query.format || 'png';
+
+        if (format === 'svg') {
+            const svg = await QRCode.toString(qrUrl, { type: 'svg' });
+            res.type('image/svg+xml').send(svg);
+        } else {
+            const dataUrl = await QRCode.toDataURL(qrUrl, {
+                width: parseInt(req.query.size) || 256,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#ffffff',
+                },
+            });
+
+            // Return as data URL or image
+            if (req.query.dataUrl === 'true') {
+                res.json({ qrCode: dataUrl, qrData: machine.qrCodeData, url: qrUrl });
+            } else {
+                const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                res.type('image/png').send(buffer);
+            }
+        }
+    } catch (error) {
+        console.error('Generate QR code error:', error);
+        res.status(500).json({ error: 'Failed to generate QR code' });
+    }
+});
+
+/**
+ * GET /api/qr/:code
+ * Lookup machine by QR code (public endpoint for mobile scanning)
+ */
+router.get('/qr/:code', async (req, res) => {
+    try {
+        const machine = await Machine.findOne({
+            where: { qrCodeData: req.params.code },
+            include: [{ model: Client, as: 'client' }],
+        });
+
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        res.json(machine);
+    } catch (error) {
+        console.error('QR lookup error:', error);
+        res.status(500).json({ error: 'Failed to lookup machine' });
+    }
+});
+
 module.exports = router;

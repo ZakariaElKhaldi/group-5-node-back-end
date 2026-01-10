@@ -129,7 +129,7 @@ router.get('/charts', authenticate, async (req, res) => {
         twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
         const interventionsByMonth = await sequelize.query(
-            `SELECT DATE_FORMAT(date_debut, '%Y-%m') as month, COUNT(id) as count 
+            `SELECT TO_CHAR(date_debut, 'YYYY-MM') as month, COUNT(id) as count 
        FROM intervention 
        WHERE date_debut >= :startDate 
        GROUP BY month 
@@ -150,7 +150,7 @@ router.get('/charts', authenticate, async (req, res) => {
         // Top 5 machines with most interventions
         const topMachines = await Intervention.findAll({
             attributes: [
-                [fn('COUNT', col('Intervention.id')), 'interventionCount'],
+                [fn('COUNT', col('Intervention.id')), 'intervention_count'],
             ],
             include: [{
                 model: Machine,
@@ -158,7 +158,7 @@ router.get('/charts', authenticate, async (req, res) => {
                 attributes: ['reference', 'modele'],
             }],
             group: ['machine.id'],
-            order: [[literal('interventionCount'), 'DESC']],
+            order: [[literal('"intervention_count"'), 'DESC']],
             limit: 5,
             raw: true,
             nest: true,
@@ -170,7 +170,7 @@ router.get('/charts', authenticate, async (req, res) => {
             topMachines: topMachines.map(t => ({
                 reference: t.machine.reference,
                 modele: t.machine.modele,
-                interventionCount: parseInt(t.interventionCount),
+                interventionCount: parseInt(t.intervention_count),
             })),
         });
     } catch (error) {

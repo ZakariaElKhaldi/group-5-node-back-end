@@ -1,6 +1,6 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth.middleware');
-const { Technicien } = require('../models');
+const { Technicien, Role } = require('../models');
 
 const router = express.Router();
 
@@ -15,12 +15,27 @@ router.get('/me', authenticate, async (req, res) => {
         // Find technicien profile if exists
         const technicien = await Technicien.findOne({ where: { userId: user.id } });
 
+        // Find role if roleId exists
+        let role = null;
+        if (user.roleId) {
+            role = await Role.findByPk(user.roleId);
+            if (role) {
+                role = {
+                    id: role.id,
+                    name: role.name,
+                    displayName: role.displayName,
+                    permissions: role.permissions || [],
+                };
+            }
+        }
+
         const response = {
             id: user.id,
             email: user.email,
             nom: user.nom,
             prenom: user.prenom,
             roles: user.getRoles(),
+            role: role, // NEW: dynamic role object
             technicien: null,
         };
 

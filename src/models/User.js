@@ -30,6 +30,12 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING(255),
         allowNull: false,
     },
+    roleId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        field: 'role_id',
+        comment: 'Foreign key to Role model for dynamic permissions',
+    },
 }, {
     tableName: 'user',
     timestamps: false,

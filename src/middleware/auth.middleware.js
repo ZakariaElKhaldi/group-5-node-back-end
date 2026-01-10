@@ -64,4 +64,44 @@ const optionalAuth = async (req, res, next) => {
     }
 };
 
-module.exports = { authenticate, optionalAuth };
+/**
+ * Require admin role middleware
+ * Must be used after authenticate middleware
+ */
+const requireAdmin = (req, res, next) => {
+    if (!req.user) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const roles = req.user.getRoles();
+    if (!roles.includes('ROLE_ADMIN')) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    next();
+};
+
+/**
+ * Require specific role middleware factory
+ * Must be used after authenticate middleware
+ */
+const requireRole = (...allowedRoles) => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+
+        const userRoles = req.user.getRoles();
+        const hasRole = allowedRoles.some(role => userRoles.includes(role));
+
+        if (!hasRole) {
+            return res.status(403).json({
+                error: `Access denied. Required role: ${allowedRoles.join(' or ')}`
+            });
+        }
+
+        next();
+    };
+};
+
+module.exports = { authenticate, optionalAuth, requireAdmin, requireRole };

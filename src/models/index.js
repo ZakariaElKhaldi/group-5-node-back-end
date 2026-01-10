@@ -12,6 +12,12 @@ const Panne = require('./Panne');
 const MouvementStock = require('./MouvementStock');
 const PieceIntervention = require('./PieceIntervention');
 const InterventionLog = require('./InterventionLog');
+const Notification = require('./Notification');
+const NotificationRead = require('./NotificationRead');
+const Settings = require('./Settings');
+const WorkOrder = require('./WorkOrder');
+const Role = require('./Role');
+const Permission = require('./Permission');
 
 // ==========================================
 // Define Associations (matching PHP entities)
@@ -65,6 +71,26 @@ InterventionLog.belongsTo(Intervention, { foreignKey: 'interventionId', as: 'int
 User.hasMany(InterventionLog, { foreignKey: 'userId', as: 'logs' });
 InterventionLog.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
+// Notification <-> NotificationRead (OneToMany)
+Notification.hasMany(NotificationRead, { foreignKey: 'notificationId', as: 'reads' });
+NotificationRead.belongsTo(Notification, { foreignKey: 'notificationId', as: 'notification' });
+
+// User <-> NotificationRead (OneToMany)
+User.hasMany(NotificationRead, { foreignKey: 'userId', as: 'notificationReads' });
+NotificationRead.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// Machine <-> WorkOrder (OneToMany)
+Machine.hasMany(WorkOrder, { foreignKey: 'machineId', as: 'workOrders' });
+WorkOrder.belongsTo(Machine, { foreignKey: 'machineId', as: 'machine' });
+
+// Technicien <-> WorkOrder (OneToMany)
+Technicien.hasMany(WorkOrder, { foreignKey: 'technicienId', as: 'workOrders' });
+WorkOrder.belongsTo(Technicien, { foreignKey: 'technicienId', as: 'technicien' });
+
+// User <-> Role (ManyToOne)
+Role.hasMany(User, { foreignKey: 'roleId', as: 'users' });
+User.belongsTo(Role, { foreignKey: 'roleId', as: 'role' });
+
 module.exports = {
     sequelize,
     User,
@@ -78,4 +104,10 @@ module.exports = {
     MouvementStock,
     PieceIntervention,
     InterventionLog,
+    Notification,
+    NotificationRead,
+    Settings,
+    WorkOrder,
+    Role,
+    Permission,
 };

@@ -157,8 +157,51 @@ router.put('/:id', authenticate, async (req, res) => {
 });
 
 /**
+ * GET /api/techniciens/:id/workorders
+ * Get technician's work orders (replacement for /interventions)
+ */
+router.get('/:id/workorders', authenticate, async (req, res) => {
+    try {
+        const technicien = await Technicien.findByPk(req.params.id);
+
+        if (!technicien) {
+            return res.status(404).json({ error: 'Technicien not found' });
+        }
+
+        const { WorkOrder } = require('../models');
+        const workorders = await WorkOrder.findAll({
+            where: { technicienId: technicien.id },
+            include: [{ model: Machine, as: 'machine' }],
+            order: [['dateReported', 'DESC']],
+        });
+
+        // Map to legacy format for backward compatibility
+        const formatted = workorders.map(wo => ({
+            id: wo.id,
+            statut: wo.status === 'completed' ? 'Terminee' :
+                wo.status === 'in_progress' ? 'En cours' :
+                    wo.status === 'assigned' ? 'Assignée' : 'En attente',
+            type: wo.type === 'corrective' ? 'Corrective' : 'Préventive',
+            priorite: wo.priority === 'urgent' ? 'Urgente' :
+                wo.priority === 'high' ? 'Elevee' :
+                    wo.priority === 'low' ? 'Basse' : 'Normale',
+            dateDebut: wo.dateReported,
+            dateFin: wo.dateCompleted,
+            machine: wo.machine,
+            description: wo.description,
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('Get workorders error:', error);
+        res.status(500).json({ error: 'Failed to get workorders' });
+    }
+});
+
+/**
  * GET /api/techniciens/:id/interventions
- * Get technician's interventions
+ * @deprecated Use /techniciens/:id/workorders instead
+ * Get technician's interventions (keeping for backward compatibility)
  */
 router.get('/:id/interventions', authenticate, async (req, res) => {
     try {
