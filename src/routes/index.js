@@ -12,6 +12,7 @@ const workorderRoutes = require('./workorder.routes');
 const roleRoutes = require('./role.routes');
 const userRoutes = require('./user.routes');
 const mouvementStockRoutes = require('./mouvementStock.routes');
+const photoSessionRoutes = require('./photo-session.routes');
 
 const setupRoutes = (app) => {
     // Auth routes (login)
@@ -35,6 +36,9 @@ const setupRoutes = (app) => {
     // Admin routes (RBAC)
     app.use('/api/roles', roleRoutes);
     app.use('/api/users', userRoutes);
+
+    // Photo sessions (mobile integration)
+    app.use('/api/photo-sessions', photoSessionRoutes);
 };
 
 module.exports = setupRoutes;

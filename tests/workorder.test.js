@@ -132,8 +132,9 @@ describe('WorkOrder API', () => {
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(response.status).toBe(200);
-            expect(Array.isArray(response.body)).toBe(true);
-            expect(response.body.length).toBeGreaterThanOrEqual(2);
+            expect(response.body.items).toBeDefined();
+            expect(Array.isArray(response.body.items)).toBe(true);
+            expect(response.body.items.length).toBeGreaterThanOrEqual(2);
         });
 
         it('should filter by status', async () => {
@@ -142,7 +143,7 @@ describe('WorkOrder API', () => {
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(response.status).toBe(200);
-            expect(response.body.every(wo => wo.status === 'reported')).toBe(true);
+            expect(response.body.items.every(wo => wo.status === 'reported')).toBe(true);
         });
 
         it('should filter by type', async () => {
@@ -151,7 +152,7 @@ describe('WorkOrder API', () => {
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(response.status).toBe(200);
-            expect(response.body.every(wo => wo.type === 'corrective')).toBe(true);
+            expect(response.body.items.every(wo => wo.type === 'corrective')).toBe(true);
         });
 
         it('should filter by machine', async () => {
@@ -160,7 +161,7 @@ describe('WorkOrder API', () => {
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(response.status).toBe(200);
-            expect(response.body.every(wo => wo.machineId === testMachine.id)).toBe(true);
+            expect(response.body.items.every(wo => wo.machineId === testMachine.id)).toBe(true);
         });
     });
 

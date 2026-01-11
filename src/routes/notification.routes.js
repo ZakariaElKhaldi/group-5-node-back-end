@@ -48,6 +48,49 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 /**
+ * GET /api/notifications/history
+ * Get all notifications for current user (including read ones)
+ */
+router.get('/history', authenticate, async (req, res) => {
+    try {
+        const user = req.user;
+        const userRoles = user.getRoles();
+        const limit = parseInt(req.query.limit) || 50;
+
+        // Get all notifications that match user's roles (no read filter)
+        const whereConditions = {
+            [Op.or]: [
+                { targetRole: null },
+                { targetRole: { [Op.in]: userRoles } },
+            ],
+        };
+
+        const notifications = await Notification.findAll({
+            where: whereConditions,
+            order: [['createdAt', 'DESC']],
+            limit,
+        });
+
+        // Get read status for each notification
+        const readNotificationIds = await NotificationRead.findAll({
+            where: { userId: user.id },
+            attributes: ['notificationId'],
+        }).then(reads => reads.map(r => r.notificationId));
+
+        // Add isRead flag to each notification
+        const notificationsWithReadStatus = notifications.map(n => ({
+            ...n.toJSON(),
+            isRead: readNotificationIds.includes(n.id),
+        }));
+
+        res.json(notificationsWithReadStatus);
+    } catch (error) {
+        console.error('Get notification history error:', error);
+        res.status(500).json({ error: 'Failed to get notification history' });
+    }
+});
+
+/**
  * GET /api/notifications/all
  * List all notifications (Admin only) with pagination
  */

@@ -18,15 +18,16 @@ const Machine = sequelize.define('Machine', {
     },
     marque: {
         type: DataTypes.STRING(255),
-        allowNull: false,
+        allowNull: true,
     },
     type: {
         type: DataTypes.STRING(255),
-        allowNull: false,
+        allowNull: true,
     },
     dateAcquisition: {
         type: DataTypes.DATEONLY,
-        allowNull: false,
+        allowNull: true,
+        defaultValue: DataTypes.NOW,
         field: 'date_acquisition',
     },
     statut: {

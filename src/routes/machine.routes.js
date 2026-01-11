@@ -2,7 +2,7 @@ const express = require('express');
 const { Op } = require('sequelize');
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireReceptionist, requireAdmin } = require('../middleware/roles.middleware');
-const { Machine, Client, Intervention, Technicien, User } = require('../models');
+const { Machine, Client, WorkOrder, Technicien, User } = require('../models');
 
 const router = express.Router();
 
@@ -161,7 +161,7 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 
 /**
  * GET /api/machines/:id/interventions
- * Get interventions for a machine
+ * Get interventions (work orders) for a machine
  */
 router.get('/:id/interventions', authenticate, async (req, res) => {
     try {
@@ -171,18 +171,18 @@ router.get('/:id/interventions', authenticate, async (req, res) => {
             return res.status(404).json({ error: 'Machine not found' });
         }
 
-        const interventions = await Intervention.findAll({
+        const workorders = await WorkOrder.findAll({
             where: { machineId: machine.id },
             include: [
                 { model: Technicien, as: 'technicien', include: [{ model: User, as: 'user', attributes: ['nom', 'prenom', 'email'] }] },
             ],
-            order: [['dateDebut', 'DESC']],
+            order: [['dateReported', 'DESC']],
         });
 
-        res.json(interventions);
+        res.json(workorders);
     } catch (error) {
-        console.error('Get machine interventions error:', error);
-        res.status(500).json({ error: 'Failed to get interventions' });
+        console.error('Get machine workorders error:', error);
+        res.status(500).json({ error: 'Failed to get workorders' });
     }
 });
 
@@ -250,6 +250,46 @@ router.post('/:id/images', authenticate, requireReceptionist, uploadMultiple, ha
     } catch (error) {
         console.error('Upload machine images error:', error);
         res.status(500).json({ error: 'Failed to upload images' });
+    }
+});
+
+/**
+ * POST /api/machines/:id/images/link
+ * Link existing image URLs to machine (from mobile upload)
+ */
+router.post('/:id/images/link', authenticate, requireReceptionist, async (req, res) => {
+    try {
+        const { images } = req.body;
+        const machine = await Machine.findByPk(req.params.id);
+
+        if (!machine) {
+            return res.status(404).json({ error: 'Machine not found' });
+        }
+
+        if (!images || !Array.isArray(images) || images.length === 0) {
+            return res.status(400).json({ error: 'No images provided' });
+        }
+
+        // Add to existing images
+        const existingImages = machine.images || [];
+        const newImages = [...existingImages, ...images];
+
+        // Set primary image if not set
+        const updates = { images: newImages };
+        if (!machine.primaryImage && images.length > 0) {
+            updates.primaryImage = images[0];
+        }
+
+        await machine.update(updates);
+
+        res.json({
+            success: true,
+            images: newImages,
+            primaryImage: machine.primaryImage,
+        });
+    } catch (error) {
+        console.error('Link machine images error:', error);
+        res.status(500).json({ error: 'Failed to link images' });
     }
 });
 

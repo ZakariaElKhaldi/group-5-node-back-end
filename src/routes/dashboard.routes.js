@@ -1,13 +1,13 @@
 const express = require('express');
-const { Op, fn, col, literal } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const { authenticate } = require('../middleware/auth.middleware');
-const { Machine, Intervention, Technicien, sequelize } = require('../models');
+const { Machine, WorkOrder, Technicien, sequelize } = require('../models');
 
 const router = express.Router();
 
 /**
  * GET /api/dashboard/stats
- * Get dashboard statistics
+ * Get dashboard statistics using WorkOrder model
  */
 router.get('/stats', authenticate, async (req, res) => {
     try {
@@ -25,11 +25,11 @@ router.get('/stats', authenticate, async (req, res) => {
             where: { statut: 'Disponible' },
         });
 
-        // Urgent interventions
-        const urgentInterventions = await Intervention.count({
+        // Urgent work orders (critical priority, not completed/cancelled)
+        const urgentWorkOrders = await WorkOrder.count({
             where: {
-                priorite: 'Urgente',
-                statut: { [Op.in]: ['En attente', 'En cours'] },
+                priority: 'critical',
+                status: { [Op.notIn]: ['completed', 'cancelled'] },
             },
         });
 
@@ -52,45 +52,61 @@ router.get('/stats', authenticate, async (req, res) => {
         }
 
         // Current period stats
-        const currentInterventionsTotal = await Intervention.count({
-            where: { dateDebut: { [Op.gte]: startDateCurrent } },
+        const currentWorkOrdersTotal = await WorkOrder.count({
+            where: { dateReported: { [Op.gte]: startDateCurrent } },
         });
 
-        const currentCostsResult = await Intervention.findAll({
-            attributes: [[fn('SUM', col('cout_total')), 'total']],
+        // Calculate costs from labor + parts
+        const currentCostsResult = await WorkOrder.findAll({
+            attributes: [
+                [fn('SUM', col('labor_cost')), 'laborTotal'],
+                [fn('SUM', col('parts_cost')), 'partsTotal'],
+            ],
             where: {
-                statut: 'Terminee',
-                dateDebut: { [Op.gte]: startDateCurrent },
+                status: 'completed',
+                dateReported: { [Op.gte]: startDateCurrent },
             },
             raw: true,
         });
-        const currentCostsTotal = parseFloat(currentCostsResult[0]?.total) || 0;
+        const currentCostsTotal =
+            (parseFloat(currentCostsResult[0]?.laborTotal) || 0) +
+            (parseFloat(currentCostsResult[0]?.partsTotal) || 0);
 
         // Previous period stats
-        const previousInterventionsTotal = await Intervention.count({
+        const previousWorkOrdersTotal = await WorkOrder.count({
             where: {
-                dateDebut: { [Op.gte]: startDatePrevious, [Op.lt]: endDatePrevious },
+                dateReported: { [Op.gte]: startDatePrevious, [Op.lt]: endDatePrevious },
             },
         });
 
-        const previousCostsResult = await Intervention.findAll({
-            attributes: [[fn('SUM', col('cout_total')), 'total']],
+        const previousCostsResult = await WorkOrder.findAll({
+            attributes: [
+                [fn('SUM', col('labor_cost')), 'laborTotal'],
+                [fn('SUM', col('parts_cost')), 'partsTotal'],
+            ],
             where: {
-                statut: 'Terminee',
-                dateDebut: { [Op.gte]: startDatePrevious, [Op.lt]: endDatePrevious },
+                status: 'completed',
+                dateReported: { [Op.gte]: startDatePrevious, [Op.lt]: endDatePrevious },
             },
             raw: true,
         });
-        const previousCostsTotal = parseFloat(previousCostsResult[0]?.total) || 0;
+        const previousCostsTotal =
+            (parseFloat(previousCostsResult[0]?.laborTotal) || 0) +
+            (parseFloat(previousCostsResult[0]?.partsTotal) || 0);
 
         // Global stats
-        const totalInterventions = await Intervention.count();
-        const totalCostsResult = await Intervention.findAll({
-            attributes: [[fn('SUM', col('cout_total')), 'total']],
-            where: { statut: 'Terminee' },
+        const totalWorkOrders = await WorkOrder.count();
+        const totalCostsResult = await WorkOrder.findAll({
+            attributes: [
+                [fn('SUM', col('labor_cost')), 'laborTotal'],
+                [fn('SUM', col('parts_cost')), 'partsTotal'],
+            ],
+            where: { status: 'completed' },
             raw: true,
         });
-        const totalCosts = parseFloat(totalCostsResult[0]?.total) || 0;
+        const totalCosts =
+            (parseFloat(totalCostsResult[0]?.laborTotal) || 0) +
+            (parseFloat(totalCostsResult[0]?.partsTotal) || 0);
 
         res.json({
             machines: {
@@ -98,10 +114,10 @@ router.get('/stats', authenticate, async (req, res) => {
                 total: machinesByStatus.reduce((sum, m) => sum + parseInt(m.count), 0),
             },
             interventions: {
-                total: totalInterventions,
-                urgent: urgentInterventions,
-                currentPeriod: currentInterventionsTotal,
-                previousPeriod: previousInterventionsTotal,
+                total: totalWorkOrders,
+                urgent: urgentWorkOrders,
+                currentPeriod: currentWorkOrdersTotal,
+                previousPeriod: previousWorkOrdersTotal,
             },
             techniciens: {
                 available: availableTechniciens,
@@ -120,57 +136,84 @@ router.get('/stats', authenticate, async (req, res) => {
 
 /**
  * GET /api/dashboard/charts
- * Get chart data
+ * Get chart data using WorkOrder model
  */
 router.get('/charts', authenticate, async (req, res) => {
     try {
-        // Interventions by month (last 12 months)
+        // Work orders by month (last 12 months)
         const twelveMonthsAgo = new Date();
         twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
-        const interventionsByMonth = await sequelize.query(
-            `SELECT TO_CHAR(date_debut, 'YYYY-MM') as month, COUNT(id) as count 
-       FROM intervention 
-       WHERE date_debut >= :startDate 
-       GROUP BY month 
-       ORDER BY month ASC`,
+        const workOrdersByMonth = await sequelize.query(
+            `SELECT TO_CHAR(date_reported, 'YYYY-MM') as month, COUNT(id) as count 
+             FROM work_order 
+             WHERE date_reported >= :startDate 
+             GROUP BY month 
+             ORDER BY month ASC`,
             {
                 replacements: { startDate: twelveMonthsAgo },
                 type: sequelize.QueryTypes.SELECT,
             }
         );
 
-        // Interventions by type
-        const interventionsByType = await Intervention.findAll({
+        // Work orders by type (corrective, preventive, inspection)
+        const workOrdersByType = await WorkOrder.findAll({
             attributes: ['type', [fn('COUNT', col('id')), 'count']],
             group: ['type'],
             raw: true,
         });
 
-        // Top 5 machines with most interventions
-        const topMachines = await Intervention.findAll({
-            attributes: [
-                [fn('COUNT', col('Intervention.id')), 'intervention_count'],
-            ],
-            include: [{
-                model: Machine,
-                as: 'machine',
-                attributes: ['reference', 'modele'],
-            }],
-            group: ['machine.id'],
-            order: [[literal('"intervention_count"'), 'DESC']],
-            limit: 5,
+        // Capitalize type names for display
+        const formattedByType = workOrdersByType.map(item => ({
+            type: item.type ? item.type.charAt(0).toUpperCase() + item.type.slice(1) : 'Unknown',
+            count: parseInt(item.count),
+        }));
+
+        // Work orders by status (for status distribution chart)
+        const workOrdersByStatus = await WorkOrder.findAll({
+            attributes: ['status', [fn('COUNT', col('id')), 'count']],
+            group: ['status'],
             raw: true,
-            nest: true,
         });
 
+        const statusLabels = {
+            'reported': 'Signalé',
+            'assigned': 'Assigné',
+            'in_progress': 'En cours',
+            'pending_parts': 'Attente pièces',
+            'completed': 'Terminé',
+            'cancelled': 'Annulé',
+        };
+
+        const formattedByStatus = workOrdersByStatus.map(item => ({
+            status: statusLabels[item.status] || item.status,
+            count: parseInt(item.count),
+        }));
+
+        // Top 5 machines with most work orders - use raw query to avoid Sequelize issues
+        let topMachines = [];
+        try {
+            topMachines = await sequelize.query(
+                `SELECT m.reference, m.modele, COUNT(w.id) as intervention_count
+                 FROM work_order w
+                 JOIN machine m ON w.machine_id = m.id
+                 GROUP BY m.id, m.reference, m.modele
+                 ORDER BY intervention_count DESC
+                 LIMIT 5`,
+                { type: sequelize.QueryTypes.SELECT }
+            );
+        } catch (e) {
+            console.error('Top machines query error:', e);
+        }
+
         res.json({
-            interventionsByMonth,
-            interventionsByType,
+            interventionsByMonth: workOrdersByMonth,
+            interventionsByType: formattedByType,
+            interventionsByStatus: formattedByStatus,
             topMachines: topMachines.map(t => ({
-                reference: t.machine.reference,
-                modele: t.machine.modele,
-                interventionCount: parseInt(t.intervention_count),
+                reference: t.reference || 'N/A',
+                modele: t.modele || 'N/A',
+                interventionCount: parseInt(t.intervention_count) || 0,
             })),
         });
     } catch (error) {

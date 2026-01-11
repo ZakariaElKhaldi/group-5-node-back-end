@@ -76,6 +76,14 @@ const WorkOrder = sequelize.define('WorkOrder', {
         comment: 'How the issue was resolved',
     },
 
+    // Image storage (Cloudinary URLs)
+    images: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
+        comment: 'Array of image URLs from Cloudinary',
+    },
+
     // Dates
     dateReported: {
         type: DataTypes.DATE,

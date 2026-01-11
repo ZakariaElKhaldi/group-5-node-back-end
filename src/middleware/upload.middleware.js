@@ -22,7 +22,15 @@ const fileFilter = (req, file, cb) => {
 // Configure multer
 const upload = multer({
     storage,
-    fileFilter,
+    fileFilter: (req, file, cb) => {
+        console.log('📝 Upload attempt:', {
+            fieldname: file.fieldname,
+            mimetype: file.mimetype,
+            originalname: file.originalname,
+            size: file.size
+        });
+        fileFilter(req, file, cb);
+    },
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB max
         files: 5, // Max 5 files at once
@@ -37,6 +45,7 @@ const uploadMultiple = upload.array('images', 5);
 
 // Error handling middleware
 const handleUploadError = (err, req, res, next) => {
+    console.error('❌ Upload middleware error:', err);
     if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
             return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });

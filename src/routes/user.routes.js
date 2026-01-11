@@ -34,6 +34,7 @@ router.get('/', authenticate, requireAdmin, async (req, res) => {
             where,
             include: [
                 { model: Role, as: 'role', attributes: ['id', 'name', 'displayName'] },
+                { model: Technicien, as: 'technicien', attributes: ['id', 'specialite', 'tauxHoraire', 'statut'] },
             ],
             attributes: { exclude: ['password'] },
             limit,

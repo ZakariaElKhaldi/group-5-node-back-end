@@ -320,4 +320,134 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
     }
 });
 
+/**
+ * GET /api/workorders/:id/invoice
+ * Generate and download PDF invoice
+ */
+router.get('/:id/invoice', authenticate, async (req, res) => {
+    try {
+        const InvoiceService = require('../services/InvoiceService');
+        const workOrderId = parseInt(req.params.id);
+
+        // Check if work order exists
+        const workOrder = await WorkOrder.findByPk(workOrderId);
+        if (!workOrder) {
+            return res.status(404).json({ error: 'Work order not found' });
+        }
+
+        // Generate PDF
+        const pdfBuffer = await InvoiceService.generateInvoice(workOrderId);
+
+        // Send PDF response
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=facture_${workOrderId.toString().padStart(6, '0')}.pdf`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Generate invoice error:', error);
+        res.status(500).json({ error: 'Failed to generate invoice' });
+    }
+});
+
+// ==========================================
+// Image Upload Endpoints
+// ==========================================
+
+const { uploadMultiple, handleUploadError } = require('../middleware/upload.middleware');
+const { uploadImage, deleteImage, getPublicIdFromUrl } = require('../config/cloudinary');
+
+/**
+ * POST /api/workorders/:id/images
+ * Upload images to work order
+ */
+router.post('/:id/images', authenticate, uploadMultiple, handleUploadError, async (req, res) => {
+    try {
+        const workOrder = await WorkOrder.findByPk(req.params.id);
+        if (!workOrder) {
+            return res.status(404).json({ error: 'Work order not found' });
+        }
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: 'No images provided' });
+        }
+
+        const uploadedUrls = [];
+
+        for (const file of req.files) {
+            try {
+                const result = await uploadImage(file.buffer, {
+                    folder: `gmao/workorders/${workOrder.id}`,
+                    public_id: `wo_${workOrder.id}_${Date.now()}`,
+                });
+                uploadedUrls.push(result.secure_url);
+            } catch (uploadError) {
+                console.error('Cloudinary upload error:', uploadError);
+                // Continue with other files
+            }
+        }
+
+        if (uploadedUrls.length === 0) {
+            return res.status(500).json({ error: 'Failed to upload images' });
+        }
+
+        // Add to existing images
+        const existingImages = workOrder.images || [];
+        const newImages = [...existingImages, ...uploadedUrls];
+
+        await workOrder.update({ images: newImages });
+
+        res.json({
+            success: true,
+            uploaded: uploadedUrls,
+            images: newImages,
+        });
+    } catch (error) {
+        console.error('Upload work order images error:', error);
+        res.status(500).json({ error: 'Failed to upload images' });
+    }
+});
+
+/**
+ * DELETE /api/workorders/:id/images
+ * Remove an image from work order
+ */
+router.delete('/:id/images', authenticate, async (req, res) => {
+    try {
+        const { imageUrl } = req.body;
+
+        const workOrder = await WorkOrder.findByPk(req.params.id);
+        if (!workOrder) {
+            return res.status(404).json({ error: 'Work order not found' });
+        }
+
+        if (!imageUrl) {
+            return res.status(400).json({ error: 'Image URL is required' });
+        }
+
+        // Remove from Cloudinary
+        const publicId = getPublicIdFromUrl(imageUrl);
+        if (publicId) {
+            try {
+                await deleteImage(publicId);
+            } catch (cloudinaryError) {
+                console.error('Cloudinary delete error:', cloudinaryError);
+                // Continue even if Cloudinary delete fails
+            }
+        }
+
+        // Remove from work order images array
+        const images = (workOrder.images || []).filter(img => img !== imageUrl);
+
+        await workOrder.update({ images });
+
+        res.json({
+            success: true,
+            images,
+        });
+    } catch (error) {
+        console.error('Delete work order image error:', error);
+        res.status(500).json({ error: 'Failed to delete image' });
+    }
+});
+
 module.exports = router;
